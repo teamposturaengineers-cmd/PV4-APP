@@ -1,119 +1,179 @@
-#include <Wire.h>
-#include <MPU6050.h>
-#include <NimBLEDevice.h>
+<!DOCTYPE html>
 
-MPU6050 mpu;
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POSTURA V3</title>
 
-// Pins
-#define GREEN_LED 5
-#define BLUE_LED 4
-#define VIBRATION 18
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  color: white;
+  text-align: center;
+}
 
-// BLE UUIDs
-#define SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
-#define CHARACTERISTIC_UUID "abcd1234-5678-1234-5678-abcdef123456"
+button {
+  padding: 12px 25px;
+  font-size: 16px;
+  background: #22c55e;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  margin: 15px;
+}
 
-NimBLECharacteristic* pCharacteristic;
-bool deviceConnected = false;
+.card {
+  background: #1e293b;
+  padding: 15px;
+  margin: 10px auto;
+  width: 300px;
+  border-radius: 12px;
+}
 
-// Variables
-float baselineAngle = 0;
-float threshold = 10.0;
+.status-good { color: #22c55e; font-weight: bold; }
+.status-bad { color: #ef4444; font-weight: bold; }
 
-// BLE Server Callbacks
-class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer) {
-    deviceConnected = true;
+input[type=range] {
+  width: 80%;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>POSTURA V3</h1>
+
+<button onclick="connectBLE()">Connect Device</button>
+
+<div class="card">
+  <h3>Angle</h3>
+  <p id="angle">--</p>
+</div>
+
+<div class="card">
+  <h3>Deviation</h3>
+  <p id="deviation">--</p>
+</div>
+
+<div class="card">
+  <h3>Status</h3>
+  <p id="status">--</p>
+</div>
+
+<div class="card">
+  <h3>Session Time ⏱</h3>
+  <p id="timer">00:00</p>
+</div>
+
+<div class="card">
+  <h3>Slouch Count 🔢</h3>
+  <p id="slouch">0</p>
+</div>
+
+<div class="card">
+  <h3>Threshold 🎚</h3>
+  <input type="range" min="5" max="30" value="10" id="slider" oninput="updateThreshold(this.value)">
+  <p id="thValue">10°</p>
+</div>
+
+<script>
+let characteristic;
+let device;
+
+let currentThreshold = 10;
+let slouchCount = 0;
+let lastState = "good";
+
+let startTime;
+let timerInterval;
+
+// 🔌 CONNECT BLE (FINAL STABLE VERSION)
+async function connectBLE() {
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{
+        name: "POSTURA_V3",
+        services: ["12345678-1234-1234-1234-1234567890ab"]
+      }]
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService("12345678-1234-1234-1234-1234567890ab");
+    characteristic = await service.getCharacteristic("abcd1234-5678-1234-5678-abcdef123456");
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener("characteristicvaluechanged", handleData);
+
+    startTimer();
+
+    alert("Connected Successfully 🚀");
+
+  } catch (error) {
+    console.error(error);
+    alert("Connection Failed ❌");
   }
+}
 
-  void onDisconnect(NimBLEServer* pServer) {
-    deviceConnected = false;
-    NimBLEDevice::startAdvertising();
-  }
-};
+// 📊 HANDLE DATA
+function handleData(event) {
+  const value = new TextDecoder().decode(event.target.value);
+  const parts = value.split(",");
 
-// Threshold receive
-class CharCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic) {
-    std::string val = pCharacteristic->getValue();
-    String received = String(val.c_str());
+  if (parts.length < 2) return;
 
-    if (received.startsWith("THRESHOLD:")) {
-      threshold = received.substring(10).toFloat();
-      Serial.println("Threshold Updated: " + String(threshold));
+  const angle = parseFloat(parts[0]);
+  const deviation = parseFloat(parts[1]);
+
+  document.getElementById("angle").innerText = angle.toFixed(2);
+  document.getElementById("deviation").innerText = deviation.toFixed(2);
+
+  const statusEl = document.getElementById("status");
+
+  if (deviation > currentThreshold) {
+    statusEl.innerText = "Bad Posture ❌";
+    statusEl.className = "status-bad";
+
+    if (lastState === "good") {
+      slouchCount++;
+      document.getElementById("slouch").innerText = slouchCount;
     }
-  }
-};
 
-void setup() {
-  Serial.begin(115200);
-
-  pinMode(GREEN_LED, OUTPUT);
-  pinMode(BLUE_LED, OUTPUT);
-  pinMode(VIBRATION, OUTPUT);
-
-  Wire.begin();
-  mpu.initialize();
-
-  // BLE INIT
-  NimBLEDevice::init("POSTURA_V3");
-
-  NimBLEServer* pServer = NimBLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
-
-  NimBLEService* pService = pServer->createService(SERVICE_UUID);
-
-  pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::WRITE
-  );
-
-  pCharacteristic->setCallbacks(new CharCallbacks());
-
-  pService->start();
-
-  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->start();
-
-  Serial.println("BLE Ready (NimBLE)");
-
-  // Calibration
-  unsigned long t = millis();
-  while (millis() - t < 5000) {
-    digitalWrite(GREEN_LED, millis() % 500 < 250);
-  }
-
-  baselineAngle = getAngle();
-}
-
-void loop() {
-  float angle = getAngle();
-  float deviation = abs(angle - baselineAngle);
-
-  // Logic
-  if (deviation > threshold) {
-    digitalWrite(GREEN_LED, LOW);
-    digitalWrite(BLUE_LED, millis() % 400 < 200);
-    digitalWrite(VIBRATION, HIGH);
+    lastState = "bad";
   } else {
-    digitalWrite(GREEN_LED, HIGH);
-    digitalWrite(BLUE_LED, LOW);
-    digitalWrite(VIBRATION, LOW);
+    statusEl.innerText = "Good Posture ✅";
+    statusEl.className = "status-good";
+    lastState = "good";
   }
-
-  // Send BLE
-  if (deviceConnected) {
-    String data = String(angle, 2) + "," + String(deviation, 2);
-    pCharacteristic->setValue(data.c_str());
-    pCharacteristic->notify();
-  }
-
-  delay(200);
 }
 
-float getAngle() {
-  int16_t ax, ay, az;
-  mpu.getAcceleration(&ax, &ay, &az);
-  return atan2(ay, az) * 180 / PI;
+// ⏱ TIMER
+function startTimer() {
+  startTime = Date.now();
+
+  if (timerInterval) clearInterval(timerInterval);
+
+  timerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const min = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const sec = String(elapsed % 60).padStart(2, '0');
+    document.getElementById("timer").innerText = `${min}:${sec}`;
+  }, 1000);
 }
+
+// 🎚 THRESHOLD CONTROL
+function updateThreshold(value) {
+  currentThreshold = parseInt(value);
+  document.getElementById("thValue").innerText = value + "°";
+
+  if (characteristic) {
+    const msg = "THRESHOLD:" + value;
+    characteristic.writeValue(new TextEncoder().encode(msg));
+  }
+}
+</script>
+
+</body>
+</html>
