@@ -75,7 +75,7 @@ input[type=range] {
 
 <div class="card">
   <h3>Threshold 🎚</h3>
-  <input type="range" min="5" max="30" value="10" id="slider" oninput="updateThreshold(this.value)">
+  <input type="range" min="5" max="30" value="10" oninput="updateThreshold(this.value)">
   <p id="thValue">10°</p>
 </div>
 
@@ -90,21 +90,27 @@ let lastState = "good";
 let startTime;
 let timerInterval;
 
-// 🔌 CONNECT BLE (FINAL STABLE VERSION)
+// 🔥 FINAL STABLE BLE CONNECTION
 async function connectBLE() {
   try {
     device = await navigator.bluetooth.requestDevice({
-      filters: [{
-        name: "POSTURA_V3",
-        services: ["12345678-1234-1234-1234-1234567890ab"]
-      }]
+      acceptAllDevices: true,
+      optionalServices: ["12345678-1234-1234-1234-1234567890ab"]
     });
 
+    console.log("Device selected:", device.name);
+
     const server = await device.gatt.connect();
+    console.log("GATT Connected");
+
     const service = await server.getPrimaryService("12345678-1234-1234-1234-1234567890ab");
+    console.log("Service Found");
+
     characteristic = await service.getCharacteristic("abcd1234-5678-1234-5678-abcdef123456");
+    console.log("Characteristic Found");
 
     await characteristic.startNotifications();
+
     characteristic.addEventListener("characteristicvaluechanged", handleData);
 
     startTimer();
@@ -112,7 +118,7 @@ async function connectBLE() {
     alert("Connected Successfully 🚀");
 
   } catch (error) {
-    console.error(error);
+    console.error("BLE Error:", error);
     alert("Connection Failed ❌");
   }
 }
