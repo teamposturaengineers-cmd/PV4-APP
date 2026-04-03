@@ -1,17 +1,20 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>POSTURA V3</title>
+<title>POSTURA Dashboard</title>
 
 <style>
 body {
-  font-family: Arial, sans-serif;
+  font-family: Arial;
   background: linear-gradient(135deg, #0f172a, #1e293b);
   color: white;
   text-align: center;
+}
+
+h1 {
+  margin-top: 10px;
 }
 
 button {
@@ -24,29 +27,67 @@ button {
   margin: 15px;
 }
 
-.card {
-  background: #1e293b;
-  padding: 15px;
-  margin: 10px auto;
-  width: 300px;
-  border-radius: 12px;
+.dashboard {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-.status-good { color: #22c55e; font-weight: bold; }
-.status-bad { color: #ef4444; font-weight: bold; }
+.card {
+  background: rgba(255,255,255,0.05);
+  padding: 20px;
+  margin: 10px;
+  width: 280px;
+  border-radius: 15px;
+  backdrop-filter: blur(10px);
+}
+
+.big-status {
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.good { color: #22c55e; }
+.bad { color: #ef4444; }
+
+.alert {
+  font-size: 18px;
+  margin-top: 10px;
+  color: #facc15;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  background: #374151;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: 0.2s;
+}
 
 input[type=range] {
   width: 80%;
 }
 </style>
-
 </head>
 
 <body>
 
-<h1>POSTURA V3</h1>
-
+<h1>POSTURA Dashboard 🚀</h1>
 <button onclick="connectBLE()">Connect Device</button>
+
+<div class="card">
+  <div id="status" class="big-status">--</div>
+  <div id="alert" class="alert"></div>
+</div>
+
+<div class="dashboard">
 
 <div class="card">
   <h3>Angle</h3>
@@ -56,11 +97,10 @@ input[type=range] {
 <div class="card">
   <h3>Deviation</h3>
   <p id="deviation">--</p>
-</div>
 
-<div class="card">
-  <h3>Status</h3>
-  <p id="status">--</p>
+  <div class="progress-bar">
+    <div id="progress" class="progress-fill"></div>
+  </div>
 </div>
 
 <div class="card">
@@ -79,6 +119,8 @@ input[type=range] {
   <p id="thValue">10°</p>
 </div>
 
+</div>
+
 <script>
 let characteristic;
 let currentThreshold = 10;
@@ -88,18 +130,13 @@ let lastState = "good";
 let startTime;
 let timerInterval;
 
-// 🚀 FINAL CONNECT FUNCTION (NO UUID DEPENDENCY)
 async function connectBLE() {
   try {
     const device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true
     });
 
-    console.log("Device:", device.name);
-
     const server = await device.gatt.connect();
-    console.log("GATT Connected");
-
     const services = await server.getPrimaryServices();
 
     let targetChar = null;
@@ -117,44 +154,38 @@ async function connectBLE() {
       if (targetChar) break;
     }
 
-    if (!targetChar) {
-      throw new Error("No valid characteristic found");
-    }
-
     characteristic = targetChar;
 
     await characteristic.startNotifications();
-
     characteristic.addEventListener("characteristicvaluechanged", handleData);
 
     startTimer();
+    alert("Connected 🚀");
 
-    alert("Connected Successfully 🚀");
-
-  } catch (error) {
-    console.error("ERROR:", error);
+  } catch (e) {
     alert("Connection Failed ❌");
   }
 }
 
-// 📊 HANDLE DATA
 function handleData(event) {
   const value = new TextDecoder().decode(event.target.value);
-  const parts = value.split(",");
-
-  if (parts.length < 2) return;
-
-  const angle = parseFloat(parts[0]);
-  const deviation = parseFloat(parts[1]);
+  const [angle, deviation] = value.split(",").map(Number);
 
   document.getElementById("angle").innerText = angle.toFixed(2);
   document.getElementById("deviation").innerText = deviation.toFixed(2);
 
+  // Progress bar
+  let percent = (deviation / currentThreshold) * 100;
+  percent = Math.min(percent, 100);
+  document.getElementById("progress").style.width = percent + "%";
+
   const statusEl = document.getElementById("status");
+  const alertEl = document.getElementById("alert");
 
   if (deviation > currentThreshold) {
-    statusEl.innerText = "Bad Posture ❌";
-    statusEl.className = "status-bad";
+    statusEl.innerText = "BAD POSTURE ❌";
+    statusEl.className = "big-status bad";
+    alertEl.innerText = "⚠️ Fix your posture!";
 
     if (lastState === "good") {
       slouchCount++;
@@ -163,13 +194,13 @@ function handleData(event) {
 
     lastState = "bad";
   } else {
-    statusEl.innerText = "Good Posture ✅";
-    statusEl.className = "status-good";
+    statusEl.innerText = "GOOD POSTURE ✅";
+    statusEl.className = "big-status good";
+    alertEl.innerText = "";
     lastState = "good";
   }
 }
 
-// ⏱ TIMER
 function startTimer() {
   startTime = Date.now();
 
@@ -183,7 +214,6 @@ function startTimer() {
   }, 1000);
 }
 
-// 🎚 THRESHOLD CONTROL
 function updateThreshold(value) {
   currentThreshold = parseInt(value);
   document.getElementById("thValue").innerText = value + "°";
