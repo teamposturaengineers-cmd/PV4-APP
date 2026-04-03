@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -75,11 +76,12 @@ input[type=range] {
   width: 80%;
 }
 </style>
+
 </head>
 
 <body>
 
-<h1>POSTURA Dashboard 🚀</h1>
+<h1 id="title">POSTURA Dashboard 🚀</h1>
 <button onclick="connectBLE()">Connect Device</button>
 
 <div class="card">
@@ -130,43 +132,44 @@ let lastState = "good";
 let startTime;
 let timerInterval;
 
+// 🔥 FINAL BLE CONNECTION (FIXED)
 async function connectBLE() {
   try {
     const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true
+      filters: [{ name: "POSTURA_V3" }],
+      optionalServices: ["12345678-1234-1234-1234-1234567890ab"]
     });
 
     const server = await device.gatt.connect();
-    const services = await server.getPrimaryServices();
 
-    let targetChar = null;
+    const service = await server.getPrimaryService(
+      "12345678-1234-1234-1234-1234567890ab"
+    );
 
-    for (let service of services) {
-      const chars = await service.getCharacteristics();
-
-      for (let char of chars) {
-        if (char.properties.notify) {
-          targetChar = char;
-          break;
-        }
-      }
-
-      if (targetChar) break;
-    }
-
-    characteristic = targetChar;
+    characteristic = await service.getCharacteristic(
+      "abcd1234-5678-1234-5678-abcdef123456"
+    );
 
     await characteristic.startNotifications();
-    characteristic.addEventListener("characteristicvaluechanged", handleData);
+
+    characteristic.addEventListener(
+      "characteristicvaluechanged",
+      handleData
+    );
 
     startTimer();
-    alert("Connected 🚀");
 
-  } catch (e) {
+    document.getElementById("title").innerText = "Connected to POSTURA_V3 ✅";
+
+    alert("Connected Successfully 🚀");
+
+  } catch (error) {
+    console.error(error);
     alert("Connection Failed ❌");
   }
 }
 
+// 📊 DATA HANDLING
 function handleData(event) {
   const value = new TextDecoder().decode(event.target.value);
   const [angle, deviation] = value.split(",").map(Number);
@@ -201,6 +204,7 @@ function handleData(event) {
   }
 }
 
+// ⏱ TIMER
 function startTimer() {
   startTime = Date.now();
 
@@ -214,6 +218,7 @@ function startTimer() {
   }, 1000);
 }
 
+// 🎚 THRESHOLD CONTROL
 function updateThreshold(value) {
   currentThreshold = parseInt(value);
   document.getElementById("thValue").innerText = value + "°";
