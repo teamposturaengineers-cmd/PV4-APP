@@ -8,7 +8,7 @@
 
 <style>
 body {
-  font-family: Arial;
+  font-family: 'Segoe UI', sans-serif;
   background: linear-gradient(135deg, #0f172a, #1e293b);
   color: white;
   text-align: center;
@@ -16,16 +16,21 @@ body {
 
 h1 {
   margin-top: 10px;
+  font-size: 28px;
 }
 
 button {
-  padding: 12px 25px;
-  font-size: 16px;
+  padding: 12px 20px;
+  font-size: 15px;
   background: #22c55e;
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  margin: 15px;
+  margin: 10px;
+}
+
+.secondary {
+  background: #3b82f6;
 }
 
 .dashboard {
@@ -38,13 +43,13 @@ button {
   background: rgba(255,255,255,0.05);
   padding: 20px;
   margin: 10px;
-  width: 280px;
+  width: 260px;
   border-radius: 15px;
   backdrop-filter: blur(10px);
 }
 
 .big-status {
-  font-size: 28px;
+  font-size: 30px;
   font-weight: bold;
 }
 
@@ -82,7 +87,8 @@ input[type=range] {
 <body>
 
 <h1 id="title">POSTURA Dashboard 🚀</h1>
-<button onclick="connectBLE()">Connect Device</button>
+
+<button onclick="connectBLE()">Connect Device</button> <button class="secondary" onclick="startDemo()">Demo Mode</button>
 
 <div class="card">
   <div id="status" class="big-status">--</div>
@@ -99,7 +105,6 @@ input[type=range] {
 <div class="card">
   <h3>Deviation</h3>
   <p id="deviation">--</p>
-
   <div class="progress-bar">
     <div id="progress" class="progress-fill"></div>
   </div>
@@ -128,11 +133,10 @@ let characteristic;
 let currentThreshold = 10;
 let slouchCount = 0;
 let lastState = "good";
-
-let startTime;
 let timerInterval;
+let startTime;
 
-// 🔥 FINAL BLE CONNECTION (FIXED)
+// 🔥 BLE CONNECT (HYBRID)
 async function connectBLE() {
   try {
     const device = await navigator.bluetooth.requestDevice({
@@ -141,27 +145,32 @@ async function connectBLE() {
     });
 
     const server = await device.gatt.connect();
+    const services = await server.getPrimaryServices();
 
-    const service = await server.getPrimaryService(
-      "12345678-1234-1234-1234-1234567890ab"
-    );
+    let targetChar = null;
 
-    characteristic = await service.getCharacteristic(
-      "abcd1234-5678-1234-5678-abcdef123456"
-    );
+    for (let service of services) {
+      const chars = await service.getCharacteristics();
+      for (let char of chars) {
+        if (char.properties.notify) {
+          targetChar = char;
+          break;
+        }
+      }
+      if (targetChar) break;
+    }
+
+    if (!targetChar) throw "No characteristic found";
+
+    characteristic = targetChar;
 
     await characteristic.startNotifications();
-
-    characteristic.addEventListener(
-      "characteristicvaluechanged",
-      handleData
-    );
+    characteristic.addEventListener("characteristicvaluechanged", handleData);
 
     startTimer();
-
     document.getElementById("title").innerText = "Connected to POSTURA_V3 ✅";
 
-    alert("Connected Successfully 🚀");
+    alert("Connected 🚀");
 
   } catch (error) {
     console.error(error);
@@ -169,17 +178,19 @@ async function connectBLE() {
   }
 }
 
-// 📊 DATA HANDLING
+// 📊 HANDLE REAL DATA
 function handleData(event) {
   const value = new TextDecoder().decode(event.target.value);
   const [angle, deviation] = value.split(",").map(Number);
+  updateUI(angle, deviation);
+}
 
+// 🧠 UI UPDATE FUNCTION
+function updateUI(angle, deviation) {
   document.getElementById("angle").innerText = angle.toFixed(2);
   document.getElementById("deviation").innerText = deviation.toFixed(2);
 
-  // Progress bar
-  let percent = (deviation / currentThreshold) * 100;
-  percent = Math.min(percent, 100);
+  let percent = Math.min((deviation / currentThreshold) * 100, 100);
   document.getElementById("progress").style.width = percent + "%";
 
   const statusEl = document.getElementById("status");
@@ -204,6 +215,18 @@ function handleData(event) {
   }
 }
 
+// 🎮 DEMO MODE (VERY IMPORTANT)
+function startDemo() {
+  startTimer();
+  document.getElementById("title").innerText = "Demo Mode 🎯";
+
+  setInterval(() => {
+    const angle = (Math.random() * 20) + 5;
+    const deviation = Math.random() * 25;
+    updateUI(angle, deviation);
+  }, 800);
+}
+
 // ⏱ TIMER
 function startTimer() {
   startTime = Date.now();
@@ -218,7 +241,7 @@ function startTimer() {
   }, 1000);
 }
 
-// 🎚 THRESHOLD CONTROL
+// 🎚 THRESHOLD
 function updateThreshold(value) {
   currentThreshold = parseInt(value);
   document.getElementById("thValue").innerText = value + "°";
